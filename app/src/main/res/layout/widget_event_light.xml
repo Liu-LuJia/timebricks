@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:forceDarkAllowed="false" android:id="@+id/widget_event_card" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="40dp" android:gravity="center_vertical" android:paddingHorizontal="8dp" android:paddingVertical="4dp" android:background="@drawable/widget_card_light" android:layoutDirection="ltr">
+    <TextView android:id="@+id/widget_event_color" android:layout_width="2dp" android:layout_height="16dp" android:layout_gravity="top" android:layout_marginTop="3dp" android:importantForAccessibility="no" android:background="#627F92" />
+    <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:layout_marginEnd="6dp" android:orientation="vertical">
+        <TextView android:id="@+id/widget_event_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" android:textColor="@color/widget_text" android:textSize="13sp" />
+        <TextView android:id="@+id/widget_event_duration" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:includeFontPadding="false" android:textColor="@color/widget_secondary" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="end" android:orientation="vertical">
+        <TextView android:id="@+id/widget_event_time" android:layout_width="wrap_content" android:layout_height="wrap_content" android:includeFontPadding="false" android:textColor="@color/widget_text" android:textSize="12sp" android:maxLines="1" />
+        <TextView android:id="@+id/widget_event_end" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:includeFontPadding="false" android:textColor="@color/widget_secondary" android:textSize="12sp" android:maxLines="1" />
+    </LinearLayout>
+</LinearLayout>
