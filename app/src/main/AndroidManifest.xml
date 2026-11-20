@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
 
+    <queries>
+        <package android:name="com.vera.selfpact" />
+    </queries>
+
     <permission android:name="${applicationId}.permission.READ_SCHEDULE"
         android:protectionLevel="signature" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
@@ -32,8 +36,6 @@
         </provider>
         <activity android:name=".ScheduleAccessActivity" android:exported="true"
             android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.Alert" />
-        <activity android:name=".ScheduleAccessManagementActivity" android:exported="false"
-            android:theme="@android:style/Theme.Material.Light.Dialog.Alert" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

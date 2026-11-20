@@ -4390,7 +4390,11 @@ private fun SettingsPage(store: TimeBricksStore, onExport: () -> Unit, onImport:
         catch (_: Exception) { /* The switch stays off if the document picker is unavailable. */ }
     }
     fun backFromDetail() {
-        if (!store.busy) detail = if (detail == "statusSchedule") "reminders" else ""
+        if (!store.busy) detail = when (detail) {
+            "statusSchedule" -> "reminders"
+            "scheduleAccess" -> "backup"
+            else -> ""
+        }
     }
     BackHandler(enabled = detail.isNotEmpty()) { backFromDetail() }
     Column(Modifier.fillMaxSize().imePadding().padding(horizontal = BricksDimensions.pageInset)) {
@@ -4398,13 +4402,14 @@ private fun SettingsPage(store: TimeBricksStore, onExport: () -> Unit, onImport:
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("设置", color = Primary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
             }
-        } else BricksHeader(when (detail) { "appearance" -> "外观主题"; "reminders" -> "通知提醒"; "statusSchedule" -> "状态栏日程"; "backup" -> "数据管理"; else -> "分类显示" }, !store.busy, { backFromDetail() })
+        } else BricksHeader(when (detail) { "appearance" -> "外观主题"; "reminders" -> "通知提醒"; "statusSchedule" -> "状态栏日程"; "backup" -> "数据管理"; "scheduleAccess" -> "日程读取授权"; else -> "分类显示" }, !store.busy, { backFromDetail() })
         key(detail) {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(BricksDimensions.gap * 2)) {
                 when (detail) {
                     "reminders" -> ReminderSettings(store, onStatusSchedule = { detail = "statusSchedule" })
                     "statusSchedule" -> StatusScheduleSettings(store)
+                    "scheduleAccess" -> ScheduleAccessSettings()
                     "backup" -> {
                         SettingsGroup {
                             Row(Modifier.fillMaxWidth().heightIn(min = BricksDimensions.listRow)
@@ -4443,9 +4448,8 @@ private fun SettingsPage(store: TimeBricksStore, onExport: () -> Unit, onImport:
                         SettingsGroup {
                             SettingsLink("导出备份", enabled = !store.busy, onClick = onExport)
                             SettingsLink("导入备份", enabled = !store.busy, onClick = onImport)
-                            SettingsLink("日程读取授权", subtitle = "管理其他应用的本地只读访问") {
-                                application.startActivity(android.content.Intent(application, ScheduleAccessManagementActivity::class.java)
-                                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                            SettingsLink("日程读取授权", subtitle = "查看授权状态与已授权应用", enabled = !store.busy) {
+                                detail = "scheduleAccess"
                             }
                         }
                         SettingsGroup {
@@ -4499,6 +4503,116 @@ private fun SettingsPage(store: TimeBricksStore, onExport: () -> Unit, onImport:
             TextButton(enabled = !store.busy, onClick = { confirmClearAll = false }) { Text("取消") }
         }
     )
+}
+
+@Composable
+private fun ScheduleAccessSettings() {
+    val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    var entries by remember { mutableStateOf<List<ScheduleAccessEntry>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refresh++
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(refresh) {
+        error = null
+        entries = null
+        try { entries = withContext(Dispatchers.IO) { readScheduleAccessEntries(context) } }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { error = "暂时无法读取授权状态，请重试。" }
+    }
+    ScheduleAccessContent(entries, error, notice, onRefresh = { refresh++ }, onRevoke = { entry ->
+        try {
+            ScheduleAccess.revoke(context, entry.packageName)
+            notice = if (entry.status == ScheduleReadStatus.SIGNATURE)
+                "已撤销手动授权；同签名读取权限仍然有效。" else "已撤销手动授权并移除记录。"
+        } catch (_: Exception) { notice = "未能完成撤销，请刷新状态后重试。" }
+        refresh++
+    })
+}
+
+/** Uses the same settings surfaces and appearance values as every other settings detail. */
+@Composable
+internal fun ScheduleAccessContent(entries: List<ScheduleAccessEntry>?, error: String?, notice: String?,
+    onRefresh: () -> Unit, onRevoke: (ScheduleAccessEntry) -> Unit) {
+    var pendingPackage by rememberSaveable { mutableStateOf<String?>(null) }
+    val pending = entries?.firstOrNull { it.packageName == pendingPackage && it.hasManualGrant }
+    // Do not keep a confirmation alive if a refresh removed the record or changed its access type.
+    LaunchedEffect(entries) { if (pending == null) pendingPackage = null }
+    SettingsGroup {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("当前授权状态", color = Primary, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(when {
+                error != null -> error
+                entries == null -> "正在检查授权状态…"
+                entries.isEmpty() -> "暂无可见的授权应用"
+                else -> {
+                    val readable = entries.count { it.status in setOf(ScheduleReadStatus.GRANTED, ScheduleReadStatus.PARTIAL, ScheduleReadStatus.SIGNATURE) }
+                    val pendingCount = entries.count { it.status in setOf(ScheduleReadStatus.EXPIRED, ScheduleReadStatus.UNKNOWN) }
+                    "${readable} 个应用可读取日程 · ${pendingCount} 个记录待确认或重新授权"
+                }
+            }, color = if (error != null) MaterialTheme.colorScheme.error else Primary, fontSize = 14.sp)
+            Text("仅限本机只读访问。授权记录不等于当前权限，状态以本次系统检查为准。",
+                color = Secondary, fontSize = 12.sp)
+            TextButton(onClick = onRefresh) { Text("刷新状态") }
+            if (notice != null) Text(notice, color = Primary, fontSize = 13.sp)
+        }
+    }
+    Text("应用与授权记录", color = Secondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
+    if (entries?.isEmpty() == true) SettingsGroup {
+        ScheduleAccessInfo("尚无授权记录", "在 SelfPact 中发起读取时间积木日程的请求，确认授权后，返回此页查看。")
+    }
+    entries.orEmpty().forEach { entry ->
+        key(entry.packageName) {
+            SettingsGroup {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(entry.label, color = Primary, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+                    Text(entry.packageName, color = Secondary, fontSize = 12.sp)
+                    Text(entry.status.title, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+                    Text(entry.status.explanation, color = Secondary, fontSize = 13.sp)
+                    if (entry.hasManualGrant) TextButton(onClick = { pendingPackage = entry.packageName }) {
+                        Text("撤销手动授权", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+    }
+    SettingsGroup {
+        ScheduleAccessInfo("SelfPact · 已适配", "支持读取时间积木日程。授权由 SelfPact 发起，本页用于查看和撤销；此说明不代表 SelfPact 已安装或已获授权。")
+        ScheduleAccessInfo("授权范围与有效期", "允许读取全部日期的日程、分类和时间，不能新增、修改或删除日程。手动授权在设备重启后失效，需回到来源应用重新申请。撤销后不会删除对方此前已读取的数据。")
+        ScheduleAccessInfo("同签名访问说明", "同签名且持有读取权限的应用可直接访问，不受手动授权撤销影响。列表仅展示系统允许查询到的应用；没有记录不代表不存在同签名访问。")
+    }
+    Text("扩展能力", color = Secondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
+    SettingsGroup {
+        ScheduleAccessInfo("按日期或分类授权 · 暂不可用", "尚未实现，目前仅支持全部日程的只读授权。")
+        ScheduleAccessInfo("自定义有效期与访问记录 · 暂不可用", "尚未实现，暂不提供到期时间设置或最近读取记录。")
+        ScheduleAccessInfo("更多应用接入 · 暂不可用", "尚未提供接入配置入口，后续将在此扩展。")
+    }
+    if (pending != null) BricksDialog(onDismissRequest = { pendingPackage = null },
+        title = { Text("撤销手动授权？") },
+        text = { Text("${pending.label}\n${pending.packageName}\n\n" +
+            if (pending.status == ScheduleReadStatus.SIGNATURE)
+                "仅撤销手动授权并移除记录；此应用仍可通过同签名权限读取日程。"
+            else "将撤销日程接口的手动读取权限并移除记录。再次使用时需从来源应用申请授权；已读取的数据不会被删除。") },
+        confirmButton = { TextButton(onClick = { pendingPackage = null; onRevoke(pending) }) {
+            Text("确认撤销", color = MaterialTheme.colorScheme.error)
+        } },
+        dismissButton = { TextButton(onClick = { pendingPackage = null }) { Text("取消") } })
+}
+
+@Composable
+private fun ScheduleAccessInfo(title: String, description: String) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, color = Primary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Text(description, color = Secondary, fontSize = 13.sp)
+    }
 }
 
 @Composable
