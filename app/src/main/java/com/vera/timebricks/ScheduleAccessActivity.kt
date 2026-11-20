@@ -55,20 +55,3 @@ class ScheduleAccessActivity : Activity() {
         if (android.os.Build.VERSION.SDK_INT >= 31) dialog.window?.setHideOverlayWindows(true)
     }
 }
-
-class ScheduleAccessManagementActivity : Activity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        val packages = ScheduleAccess.packages(this).sorted()
-        val builder = AlertDialog.Builder(this).setTitle("日程读取授权")
-            .setNegativeButton("关闭") { _, _ -> finish() }.setOnCancelListener { finish() }
-        if (packages.isEmpty()) builder.setMessage("尚无手动授权记录。同签名且声明读取权限的应用可直接读取。")
-        else builder.setItems(packages.toTypedArray()) { _, index ->
-            val target = packages[index]
-            AlertDialog.Builder(this).setTitle("撤销只读授权？").setMessage(target)
-                .setPositiveButton("撤销") { _, _ -> ScheduleAccess.revoke(this, target); finish() }
-                .setNegativeButton("取消") { _, _ -> finish() }.setOnCancelListener { finish() }.show()
-        }
-        builder.show()
-    }
-}
