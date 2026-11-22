@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Author is taken from LICENSE. Leave unknown contact information empty. -->
+    <string name="about_author" translatable="false">Liu-LuJia</string>
+    <string name="about_feedback_email" translatable="false"></string>
+    <string name="about_qq_group" translatable="false">1131506176</string>
+    <string name="about_release_repository" translatable="false">Liu-LuJia/timebricks</string>
+</resources>
