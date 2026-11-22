@@ -68,6 +68,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -105,7 +106,7 @@ private data class BricksColors(
     val dateSelected: Color, val todayBorder: Color
 )
 private val DarkBricksColors = BricksColors(
-    Color(0xFF070707), Color(0xFF1A1A1A), Color(0xFF141414), Color(0xFF354852),
+    Color(0xFF000000), Color(0xFF1A1A1A), Color(0xFF141414), Color(0xFF354852),
     Color(0xFFF2F2F2), Color(0xFFA6A6A6), Color(0xFF181818), Color(0xFF454545),
     Color(0xFF354852), Color(0xFF90B9CD)
 )
@@ -116,7 +117,7 @@ private val LightBricksColors = BricksColors(
 )
 private val LocalBricksColors = staticCompositionLocalOf { DarkBricksColors }
 private val LocalAppearance = staticCompositionLocalOf { DisplaySettings() }
-private object BricksDimensions {
+internal object BricksDimensions {
     val small: Dp @Composable get() = (LocalAppearance.current.cornerDp * .5f).dp
     val medium: Dp @Composable get() = (LocalAppearance.current.cornerDp * .75f).dp
     val pill: Dp @Composable get() = LocalAppearance.current.cornerDp.dp
@@ -298,6 +299,8 @@ class MainActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val updater = ViewModelProvider(this)[AppUpdateModel::class.java]
+        updater.autoCheck()
         if (savedInstanceState == null) widgetRequest = ScheduleWidgets.openRequest(intent)
         else if (savedInstanceState.containsKey("pendingWidgetDay")) {
             val day = savedInstanceState.getLong("pendingWidgetDay")
@@ -305,10 +308,11 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             TimeBricksTheme(store.data.settings) {
-
-                key(store.restoreGeneration) {
-                    BackupControls(store) { export, import ->
-                        ScheduleExportControls(store) { scheduleExport -> TimeBricksApp(store, export, import, scheduleExport, widgetRequest) { widgetRequest = null } }
+                CompositionLocalProvider(LocalAppUpdater provides updater) {
+                    key(store.restoreGeneration) {
+                        BackupControls(store) { export, import ->
+                            ScheduleExportControls(store) { scheduleExport -> TimeBricksApp(store, export, import, scheduleExport, widgetRequest) { widgetRequest = null } }
+                        }
                     }
                 }
             }
@@ -3814,13 +3818,16 @@ private fun CategoryEditor(
 
 // Shared chrome for management pages; domain transactions stay in AppData/Store.
 @Composable
-private fun BricksHeader(title: String, enabled: Boolean, onBack: () -> Unit,
+internal fun BricksHeader(title: String, enabled: Boolean, onBack: () -> Unit,
     action: (@Composable RowScope.() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(enabled = enabled, onClick = onBack,
+            modifier = Modifier.semantics { contentDescription = "返回" }) {
+            ChevronIcon(Modifier.rotate(180f), if (enabled) Primary else Secondary)
+        }
         Text(title, Modifier.weight(1f), color = Primary, fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            fontWeight = FontWeight.SemiBold)
         action?.invoke(this)
-        TextButton(enabled = enabled, onClick = onBack) { Text("返回") }
     }
 }
 
@@ -4219,7 +4226,7 @@ private fun TemplateConfirmDialog(request: TemplateRequest, busy: Boolean, notic
 }
 
 @Composable
-private fun CompactBricksDialog(onDismissRequest: () -> Unit, title: @Composable () -> Unit,
+internal fun CompactBricksDialog(onDismissRequest: () -> Unit, title: @Composable () -> Unit,
     text: @Composable () -> Unit, confirmButton: @Composable () -> Unit,
     dismissButton: (@Composable () -> Unit)? = null) {
     Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -4232,8 +4239,9 @@ private fun CompactBricksDialog(onDismissRequest: () -> Unit, title: @Composable
                 Box(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                     ProvideTextStyle(MaterialTheme.typography.bodyMedium) { text() }
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically) { dismissButton?.invoke(); confirmButton() }
+                FlowRow(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End) {
+                    dismissButton?.invoke(); confirmButton()
+                }
             }
         }
     }
@@ -4392,6 +4400,10 @@ private fun SettingsPage(store: TimeBricksStore, onExport: () -> Unit, onImport:
     fun backFromDetail() {
         if (!store.busy) detail = if (detail == "statusSchedule") "reminders" else ""
     }
+    if (detail == "about") {
+        AboutScreen(onBack = { detail = "" })
+        return
+    }
     BackHandler(enabled = detail.isNotEmpty()) { backFromDetail() }
     Column(Modifier.fillMaxSize().imePadding().padding(horizontal = BricksDimensions.pageInset)) {
         if (detail.isEmpty()) {
@@ -4478,6 +4490,11 @@ private fun SettingsPage(store: TimeBricksStore, onExport: () -> Unit, onImport:
                         }
                         SettingsGroup { SettingsLink("通知提醒") { detail = "reminders" } }
                         SettingsGroup { SettingsLink("数据管理", enabled = !store.busy) { detail = "backup" } }
+                        SettingsGroup {
+                            val update by LocalAppUpdater.current.state.collectAsState()
+                            AboutRow("关于时间积木", if (update.available != null) "新版本" else "",
+                                onClick = { detail = "about" }, modifier = Modifier.testTag("settings-about"))
+                        }
                     }
                 }
                 if (store.notice.startsWith("保存失败")) Text(store.notice, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
@@ -4502,7 +4519,7 @@ private fun SettingsPage(store: TimeBricksStore, onExport: () -> Unit, onImport:
 }
 
 @Composable
-private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(BricksDimensions.pill)).background(NavBg), content = content)
 }
 
@@ -4831,7 +4848,7 @@ private fun EditorHeader(title: String, enabled: Boolean, onCancel: () -> Unit, 
 }
 
 @Composable
-private fun ChevronIcon(modifier: Modifier = Modifier, color: Color = Secondary) {
+internal fun ChevronIcon(modifier: Modifier = Modifier, color: Color = Secondary) {
     Canvas(modifier.size(20.dp)) {
         val path = Path().apply { moveTo(size.width * .38f, size.height * .25f); lineTo(size.width * .63f, size.height * .5f); lineTo(size.width * .38f, size.height * .75f) }
         drawPath(path, color, style = Stroke(1.8.dp.toPx(), cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
